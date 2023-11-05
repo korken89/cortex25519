@@ -6,10 +6,16 @@ edition = "2021"
 readme = "README.md"
 license = "BSD-2-Clause"
 
+[features]
+default = ["rand"]
+rand = ["dep:rand_core"]
+
 [dependencies]
 sha2 = { version = "0.10.0", default-features = false }
 generic-array = { version = "0.14", features = ["more_lengths"]}
 curve25519-dalek = { version =  "4.1.1", default-features = false }
+rand_core = { version = "0.6.4", default-features = false, optional = true }
+zeroize = { version = "1.6.0", default-features = false, features = ["zeroize_derive"] }
 
 [build-dependencies]
 cc = "1.0"

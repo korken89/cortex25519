@@ -1,17 +1,105 @@
 pub use custom_hash::VerifyError;
-use sha2::Sha512;
+use sha2::{Digest, Sha512};
+use zeroize::Zeroize;
 
-pub fn verify(message: &[u8], public_key: [u8; 32], sig: [u8; 64]) -> Result<(), VerifyError> {
-    custom_hash::verify::<Sha512>(message, public_key, sig)
+/// Ed25519 signing key, used to generate signatures.
+#[derive(Clone, Zeroize)]
+pub struct SigningKey {
+    /// The secret half of this signing key.
+    pub(crate) secret_key: SecretKey,
+    /// The public half of this signing key.
+    pub(crate) verifying_key: VerifyingKey,
 }
 
-pub fn sign(message: &[u8], secret_key: [u8; 32]) -> [u8; 64] {
-    custom_hash::sign::<Sha512>(message, secret_key)
+/// Ed25519 secret key.
+#[derive(Clone, Zeroize)]
+pub struct SecretKey([u8; 32]);
+
+/// Ed25519 verifying (public) key, used to verify signatures.
+#[derive(Clone, Zeroize)]
+pub struct VerifyingKey([u8; 32]);
+
+/// Ed25519 signature.
+#[derive(Clone, Debug)]
+pub struct Signature([u8; 64]);
+
+impl SigningKey {}
+
+impl SecretKey {
+    #[cfg(feature = "rand")]
+    /// Generate a random `SecretKey`.
+    pub fn random(mut rng: impl rand_core::CryptoRng + rand_core::RngCore) -> Self {
+        // Follows https://www.rfc-editor.org/rfc/rfc8032#section-5.1.5
+
+        let mut seed = [0; 32];
+        rng.fill_bytes(&mut seed);
+
+        // 1. Hash the seed to produce a 64-byte output.
+        let mut hasher = Sha512::default();
+        hasher.update(seed);
+        let mut hash: [u8; 64] = hasher.finalize().into();
+
+        // 2. Prune the buffer: The lowest three bits of the first octet are cleared, the highest
+        // bit of the last octet is cleared, and the second highest bit of the last octet is set.
+        hash[0] &= 0b1111_1000;
+        hash[31] &= 0b0111_1111;
+        hash[31] |= 0b0100_0000;
+
+        SecretKey(hash[0..32].try_into().unwrap())
+    }
+
+    /// Create private key from bytes.
+    pub fn from_bytes(bytes: &[u8; 32]) -> Option<Self> {
+        let key = Self(*bytes);
+
+        // Check clamping.
+        if key.0[0] & 248 == key.0[0] && key.0[31] & 127 == key.0[31] && key.0[31] & 64 == 64 {
+            Some(key)
+        } else {
+            None
+        }
+    }
+
+    /// Convert the key to bytes. `unsafe` as it's up to the user to not leak it.
+    pub unsafe fn to_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Calculate associated public key.
+    #[inline]
+    pub fn public_key(&self) -> VerifyingKey {
+        VerifyingKey(custom_hash::secret_to_public::<Sha512>(self.0))
+    }
 }
 
-pub fn secret_to_public(secret_key: [u8; 32]) -> [u8; 32] {
-    custom_hash::secret_to_public::<Sha512>(secret_key)
+impl VerifyingKey {}
+
+impl Signature {
+    /// The size of the signature in bytes.
+    pub const BYTE_SIZE: usize = 64;
+
+    /// Parse an Ed25519 signature from a byte array.
+    pub fn from_bytes(bytes: &[u8; 64]) -> Self {
+        Self(*bytes)
+    }
+
+    /// Convert the signature to a bytes array.
+    pub fn to_bytes(&self) -> &[u8; 64] {
+        &self.0
+    }
 }
+
+// pub fn verify(message: &[u8], public_key: [u8; 32], sig: [u8; 64]) -> Result<(), VerifyError> {
+//     custom_hash::verify::<Sha512>(message, public_key, sig)
+// }
+
+// pub fn sign(message: &[u8], secret_key: [u8; 32]) -> [u8; 64] {
+//     custom_hash::sign::<Sha512>(message, secret_key)
+// }
+
+// pub fn secret_to_public(secret_key: [u8; 32]) -> [u8; 32] {
+//     custom_hash::secret_to_public::<Sha512>(secret_key)
+// }
 
 pub mod custom_hash {
     use core::convert::TryInto;

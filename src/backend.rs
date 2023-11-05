@@ -16,9 +16,10 @@ extern "C" {
     fn ed25519_add(result: *mut [u32; 32], a: *const [u32; 32], b: *const [u32; 32]);
 }
 
-pub fn x25519(scalar: [u8; 32], point: [u8; 32]) -> [u8; 32] {
+#[inline(always)]
+pub(crate) fn x25519(scalar: &[u8; 32], point: &[u8; 32]) -> [u8; 32] {
     let mut result = [0; 32];
-    unsafe { curve25519_scalarmult(&mut result, &scalar, &point) };
+    unsafe { curve25519_scalarmult(&mut result, scalar, point) };
     result
 }
 
